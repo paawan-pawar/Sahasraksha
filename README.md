@@ -791,4 +791,69 @@ Add your project's selected open-source or proprietary license here.
 
 **From Surveillance to Intelligence.**
 
+------------------------------------------------------------------------
+
+# AI Trailing MVP
+
+AI Trailing is implemented as a separate Python backend under `backend/Ai_trailing/` and a Flutter operator surface at `lib/pages/ai_trailing.dart`. The backend has no fabricated entity seed data: the dashboard reports an empty state until a configured video pipeline writes observations.
+
+## Backend setup
+
+```powershell
+cd backend\Ai_trailing
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+$env:PYTHONPATH = (Get-Location).Path
+uvicorn app.main:app --reload --port 8000
+```
+
+Run the focused tests with `python -m pytest`. The API exposes `/health`, `/entities`, `/entities/{global_id}`, `/entities/{global_id}/trajectory`, `/entities/{global_id}/history`, `/entities/{global_id}/prediction`, `/cameras`, `/cameras/{camera_id}/connections`, and `/ws/tracking`.
+
+## CV pipeline and configuration
+
+`backend/config/cameras.yaml` is the backend-local camera graph and recorded-video configuration. `Yolo11Detector` uses `yolo11x.pt` through Ultralytics and filters person, car, motorcycle, bus, and truck classes. `ByteTrackTracker` keeps IDs scoped to each camera; those IDs are never used as global identity. Add a recorded source under the configured path, call `Yolo11Detector.load()`, and feed frames through the detector/tracker adapters.
+
+`PersonReIDEncoder` and `VehicleReIDEncoder` are explicit adapters for OSNet/FastReID and vehicle embedding/ANPR integrations. Until a trained encoder and observation ingestion worker are wired, no cross-camera identity is claimed. `CrossCameraMatcher` combines appearance, entity type, camera connectivity, and travel-time consistency and returns its evidence and confidence.
+
+Coordinates are image-space by default. A future homography/calibration adapter must mark ground coordinates as `ground`; the trajectory metrics only report metres-per-second when ground positions are available.
+
+`MarkovCameraPredictor` learns transition frequencies from stored entity histories and constrains predictions to non-restricted graph edges. Probabilities are returned for every prediction; it does not present a route as certain. PostgreSQL table definitions are in `backend/Ai_trailing/schema.sql`, ready to replace the current in-memory store.
+
+## Scene Search backend
+
+The natural-language visual event search backend is under `backend/scene_search/`. It provides SQLite event indexing, query parsing, hybrid metadata/scoring search, optional FAISS vectors, plate normalization, behavior features, and an OpenCV sampling interface.
+
+```powershell
+cd backend\scene_search
+..\..\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+$env:PYTHONPATH = (Get-Location).Path
+uvicorn main:app --reload --port 8001
+```
+
+Index events with `POST /events`, search with `POST /search`, and inspect the API at `http://127.0.0.1:8001/docs`. Tests run from the repository backend directory with `python -m pytest scene_search/tests -q`.
+
+## Flutter dashboard
+
+```powershell
+flutter pub get
+flutter run -d windows
+```
+
+Open **AI Trailing** or **Scene Search** from the left navigation. Configure backend URLs without editing Dart source:
+
+```powershell
+flutter run -d windows --dart-define=IBVAP_AI_TRAILING_API_URL=http://127.0.0.1:8000 --dart-define=IBVAP_SCENE_SEARCH_API_URL=http://127.0.0.1:8001
+```
+
+AI Trailing reads `/entities`; Scene Search submits queries to `/search`. Defaults target local development, while deployed/private backend URLs can be supplied through the same `--dart-define` variables.
+
+## Current limitations and next improvements
+
+- The video ingestion worker, homography editor, PostgreSQL repository, and Redis/WebSocket publish hook still need wiring.
+- Re-ID model weights and ANPR are intentionally not bundled; install compatible model packages and implement the encoder adapters for production matching.
+- Add observation ingestion from OpenCV recorded files first, then RTSP reconnect/backpressure handling.
+- Bind trajectory/prediction response models to Flutter and add evidence clip retrieval.
+
 

@@ -1,0 +1,35 @@
+# Camera topology is configuration, not identity data. Add calibration when available.
+cameras:
+  CAM01:
+    zone: outer_fence
+    source: assets/videos/cam01_people_detection.mp4
+  CAM02:
+    zone: inspection_lane
+    source: assets/videos/cam02_person_bicycle_car.mp4
+  CAM03:
+    zone: gate_3
+    source: assets/videos/cam03_car_detection.mp4
+  CAM04:
+    zone: service_road
+    source: assets/videos/cam04_worker_zone.mp4
+  CAM05:
+    zone: gate_5
+    source: assets/videos/cam05_store_aisle.mp4
+  CAM06:
+    zone: border_road
+    source: assets/videos/cam06_face_demographics_walking.mp4
+connections:
+  CAM01:
+    - destination: CAM02
+      distance_m: 120
+      direction: east
+      min_travel_seconds: 10
+      max_travel_seconds: 180
+      destination_zone: inspection_lane
+  CAM02:
+    - destination: CAM04
+      distance_m: 240
+      direction: south
+      min_travel_seconds: 20
+      max_travel_seconds: 300
+      destination_zone: service_road

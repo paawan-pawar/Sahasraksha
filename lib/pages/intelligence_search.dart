@@ -1,9 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'dart:ui';
+import 'package:http/http.dart' as http;
 
 import '../routes/side_navigation_bar.dart' as navigation;
 import '../widgets/kavach_logo.dart';
+import '../widgets/asset_video_player.dart';
+import '../services/api_config.dart';
 
 void main() {
   runApp(const MyApp());
@@ -63,7 +66,148 @@ class IntelligenceSearchView extends StatefulWidget {
 
 class _IntelligenceSearchViewState extends State<IntelligenceSearchView> {
   final TextEditingController _searchController = TextEditingController();
-  String _searchQuery = '';
+  String _searchStatus = 'INDEX READY';
+  String _lastQuery = '';
+  List<Map<String, dynamic>> _searchHistory = const [];
+  List<Map<String, dynamic>> _searchResults = const [];
+  bool _hasSearched = false;
+  bool _isSearching = false;
+  bool _camerasScanned = false;
+
+  static const Map<String, String> cameraVideoAssets = {
+    'CAM01': 'assets/videos/cam01_people_detection.mp4',
+    'CAM02': 'assets/videos/cam02_person_bicycle_car.mp4',
+    'CAM03': 'assets/videos/cam03_car_detection.mp4',
+    'CAM04': 'assets/videos/cam04_worker_zone.mp4',
+    'CAM05': 'assets/videos/cam05_store_aisle.mp4',
+    'CAM06': 'assets/videos/cam06_face_demographics_walking.mp4',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _checkIndexAndHistory();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _checkIndexAndHistory() async {
+    await _loadSearchHistory();
+    try {
+      final stats = await http.get(Uri.parse('${ApiConfig.sceneSearchBaseUrl}/statistics'));
+      if (stats.statusCode == 200) {
+        final data = jsonDecode(stats.body) as Map<String, dynamic>;
+        final count = (data['events'] as num?) ?? 0;
+        if (count > 0 && mounted) {
+          _camerasScanned = true;
+          setState(() {
+            _searchStatus = 'INDEX READY ($count EVENTS)';
+          });
+        }
+      }
+    } catch (_) {
+      // Backend status will update on search
+    }
+  }
+
+  Future<void> _loadSearchHistory() async {
+    try {
+      final response = await http.get(Uri.parse('${ApiConfig.sceneSearchBaseUrl}/search/history'));
+      if (!mounted || response.statusCode != 200) return;
+      setState(() {
+        _searchHistory = (jsonDecode(response.body) as List).cast<Map<String, dynamic>>();
+      });
+    } catch (_) {
+      // The history panel remains available when the search service is offline.
+    }
+  }
+
+  void _resetToLiveFeeds() {
+    setState(() {
+      _searchController.clear();
+      _hasSearched = false;
+      _lastQuery = '';
+      _searchResults = const [];
+      _searchStatus = 'LIVE CAMERA FEEDS';
+    });
+  }
+
+  Future<void> _runSearch(String value) async {
+    final query = value.trim();
+    if (query.isEmpty) {
+      _resetToLiveFeeds();
+      return;
+    }
+    setState(() {
+      _hasSearched = true;
+      _isSearching = true;
+      _lastQuery = query;
+      _searchStatus = 'SEARCHING...';
+    });
+    try {
+      // If we haven't confirmed cameras are scanned, check if events already exist in db
+      if (!_camerasScanned) {
+        try {
+          final stats = await http.get(Uri.parse('${ApiConfig.sceneSearchBaseUrl}/statistics'));
+          if (stats.statusCode == 200) {
+            final statsData = jsonDecode(stats.body) as Map<String, dynamic>;
+            if (((statsData['events'] as num?) ?? 0) > 0) {
+              _camerasScanned = true;
+            }
+          }
+        } catch (_) {}
+
+        // Only scan if database genuinely has 0 indexed events
+        if (!_camerasScanned) {
+          setState(() => _searchStatus = 'SCANNING CAMERAS...');
+          final scan = await http.post(
+            Uri.parse('${ApiConfig.sceneSearchBaseUrl}/process/cameras'),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({'config_path': 'config/cameras.yaml', 'model_name': 'yolo11n.pt', 'sample_fps': 2.0}),
+          );
+          _camerasScanned = scan.statusCode == 200;
+          if (scan.statusCode != 200 && mounted) {
+            setState(() => _searchStatus = 'DETECTOR UNAVAILABLE');
+          }
+        }
+      }
+
+      final response = await http.post(
+        Uri.parse('${ApiConfig.sceneSearchBaseUrl}/search'),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({'query': query}),
+      );
+
+      if (!mounted) return;
+      if (response.statusCode == 200) {
+        final payload = jsonDecode(response.body) as Map<String, dynamic>;
+        final results = (payload['results'] as List).cast<Map<String, dynamic>>();
+        setState(() {
+          _isSearching = false;
+          _searchResults = results;
+          _searchStatus = '${results.length} MATCHES FOUND';
+        });
+      } else {
+        setState(() {
+          _isSearching = false;
+          _searchStatus = 'API ERROR ${response.statusCode}';
+          _searchResults = const [];
+        });
+      }
+      await _loadSearchHistory();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isSearching = false;
+        _searchStatus = 'BACKEND OFFLINE';
+        _searchResults = const [];
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -171,9 +315,7 @@ class _IntelligenceSearchViewState extends State<IntelligenceSearchView> {
                         ),
                       ),
                       onPressed: () {
-                        setState(() {
-                          _searchQuery = _searchController.text;
-                        });
+                          _runSearch(_searchController.text);
                       },
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
@@ -194,9 +336,7 @@ class _IntelligenceSearchViewState extends State<IntelligenceSearchView> {
                   suffixIconConstraints: const BoxConstraints(minWidth: 120),
                 ),
                 onSubmitted: (value) {
-                  setState(() {
-                    _searchQuery = value;
-                  });
+                  _runSearch(value);
                 },
               ),
             ],
@@ -219,9 +359,9 @@ class _IntelligenceSearchViewState extends State<IntelligenceSearchView> {
                 ),
               ),
               const SizedBox(width: 8),
-              _buildFilterChip('All', true),
-              _buildFilterChip('People', false),
-              _buildFilterChip('Vehicles', false),
+              _buildFilterChip('All', !_hasSearched),
+              _buildFilterChip('People', _hasSearched && _lastQuery == 'person'),
+              _buildFilterChip('Vehicles', _hasSearched && _lastQuery == 'car'),
               _buildFilterChip('Faces', false),
               _buildFilterChip('Plates', false),
               Container(
@@ -256,7 +396,17 @@ class _IntelligenceSearchViewState extends State<IntelligenceSearchView> {
             borderRadius: BorderRadius.circular(4),
           ),
         ),
-        onPressed: () {},
+        onPressed: () {
+          if (label == 'All') {
+            _resetToLiveFeeds();
+          } else if (label == 'People' || label == 'Faces') {
+            _searchController.text = 'person';
+            _runSearch('person');
+          } else if (label == 'Vehicles' || label == 'Plates') {
+            _searchController.text = 'car';
+            _runSearch('car');
+          }
+        },
         child: Text(
           label,
           style: const TextStyle(
@@ -284,7 +434,15 @@ class _IntelligenceSearchViewState extends State<IntelligenceSearchView> {
             borderRadius: BorderRadius.circular(4),
           ),
         ),
-        onPressed: () {},
+        onPressed: () {
+          if (label == 'Yesterday') {
+            _searchController.text = 'CAM02';
+            _runSearch('CAM02');
+          } else {
+            _searchController.text = 'CAM01';
+            _runSearch('CAM01');
+          }
+        },
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -319,13 +477,31 @@ class _IntelligenceSearchViewState extends State<IntelligenceSearchView> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Intel Results',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.onSurface,
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      _hasSearched ? 'Search Results' : 'Active Camera Feeds',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.onSurface,
+                      ),
+                    ),
+                    if (_hasSearched) ...[
+                      const SizedBox(width: 8),
+                      TextButton.icon(
+                        icon: const Icon(Icons.close, size: 14),
+                        label: const Text('Clear', style: TextStyle(fontSize: 11)),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.primaryFixedDim,
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: _resetToLiveFeeds,
+                      ),
+                    ],
+                  ],
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -334,9 +510,9 @@ class _IntelligenceSearchViewState extends State<IntelligenceSearchView> {
                     border: Border.all(color: AppColors.outlineVariant),
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: const Text(
-                    '47 MATCHES DETECTED',
-                    style: TextStyle(
+                  child: Text(
+                    _searchStatus,
+                    style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w400,
                       color: AppColors.primaryFixedDim,
@@ -347,73 +523,183 @@ class _IntelligenceSearchViewState extends State<IntelligenceSearchView> {
               ],
             ),
           ),
-          // Masonry Grid
+          // Content: Loading / Empty / Grid
           Expanded(
-            child: SingleChildScrollView(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  int crossAxisCount = 1;
-                  if (constraints.maxWidth > 500) crossAxisCount = 2;
-                  if (constraints.maxWidth > 800) crossAxisCount = 3;
-                  if (constraints.maxWidth > 1100) crossAxisCount = 4;
+            child: _isSearching
+                ? const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(color: AppColors.primaryContainer, strokeWidth: 2.5),
+                        SizedBox(height: 16),
+                        Text(
+                          'Searching indexed detections across cameras...',
+                          style: TextStyle(color: AppColors.onSurfaceVariant, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  )
+                : _hasSearched && _searchResults.isEmpty
+                    ? Center(
+                        child: Container(
+                          padding: const EdgeInsets.all(32),
+                          constraints: const BoxConstraints(maxWidth: 480),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.search_off, size: 48, color: AppColors.outline),
+                              const SizedBox(height: 16),
+                              Text(
+                                'No events matched "$_lastQuery"',
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.onSurface),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Try searching: "car", "person", "bicycle", "CAM01", "CAM02", "inspection_lane", "gate 3", "truck"',
+                                style: TextStyle(fontSize: 12, color: AppColors.onSurfaceVariant),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 20),
+                              ElevatedButton.icon(
+                                icon: const Icon(Icons.videocam, size: 16),
+                                label: const Text('Return to Live Camera Feeds'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.surfaceContainerHigh,
+                                  foregroundColor: AppColors.primaryFixedDim,
+                                ),
+                                onPressed: _resetToLiveFeeds,
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : SingleChildScrollView(
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            int crossAxisCount = 1;
+                            if (constraints.maxWidth > 500) crossAxisCount = 2;
+                            if (constraints.maxWidth > 800) crossAxisCount = 3;
+                            if (constraints.maxWidth > 1100) crossAxisCount = 4;
 
-                  return GridView.count(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: crossAxisCount,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                    childAspectRatio: 0.8,
-                    children: const [
-                      ResultCard(
-                        imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCJLJ_FKU-ODGJHHi0p-dLq-Ys7Y-mVFButEdng952VKCZYUNbQG2a9_6Rz2JJAp4KXkuAw8OG5LEV_KAuoQuwWRUkk_mLR0MruFnmyDzSRs-vG3cn3HNEPnnjTX20drDKun7bT7xdW9PT6dbhMY9qPiaDaiUdG3mqQfm2bvN9TB2gNKRzW60eVrGivEdjxT0drjrRbVxla442d4VIn6XuO254qhiD8o23_yUYQQeLWuh1Yor7oFFws',
-                        title: 'Red SUV Detected',
-                        time: '06:42:15 AM - Today',
-                        location: 'CAM-G2-04',
-                        match: '98% Match',
-                        tag: 'Vehicle',
-                        tagColor: AppColors.primaryContainer,
-                        height: 160,
+                            return GridView.count(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              crossAxisCount: crossAxisCount,
+                              crossAxisSpacing: 16,
+                              mainAxisSpacing: 16,
+                              childAspectRatio: 0.8,
+                              children: _hasSearched && _searchResults.isNotEmpty
+                                  ? [for (final result in _searchResults) _buildSearchResultCard(result)]
+                                  : const [
+                                      ResultCard(
+                                        imageUrl: '',
+                                        title: 'CAM01: Perimeter Fence',
+                                        time: 'LIVE MONITORING',
+                                        location: 'CAM01 / outer_fence',
+                                        match: 'LIVE FEED',
+                                        tag: 'Outer Fence',
+                                        tagColor: AppColors.primaryContainer,
+                                        height: 160,
+                                        videoAsset: 'assets/videos/cam01_people_detection.mp4',
+                                      ),
+                                      ResultCard(
+                                        imageUrl: '',
+                                        title: 'CAM02: Inspection Lane',
+                                        time: 'LIVE MONITORING',
+                                        location: 'CAM02 / inspection_lane',
+                                        match: 'LIVE FEED',
+                                        tag: 'Inspection Lane',
+                                        tagColor: AppColors.secondary,
+                                        height: 160,
+                                        videoAsset: 'assets/videos/cam02_person_bicycle_car.mp4',
+                                      ),
+                                      ResultCard(
+                                        imageUrl: '',
+                                        title: 'CAM03: Gate 3 Entry',
+                                        time: 'LIVE MONITORING',
+                                        location: 'CAM03 / gate_3',
+                                        match: 'LIVE FEED',
+                                        tag: 'Gate 3',
+                                        tagColor: AppColors.primaryContainer,
+                                        height: 160,
+                                        videoAsset: 'assets/videos/cam03_car_detection.mp4',
+                                      ),
+                                      ResultCard(
+                                        imageUrl: '',
+                                        title: 'CAM04: Service Road',
+                                        time: 'LIVE MONITORING',
+                                        location: 'CAM04 / service_road',
+                                        match: 'LIVE FEED',
+                                        tag: 'Service Road',
+                                        tagColor: AppColors.primaryContainer,
+                                        height: 160,
+                                        videoAsset: 'assets/videos/cam04_worker_zone.mp4',
+                                      ),
+                                      ResultCard(
+                                        imageUrl: '',
+                                        title: 'CAM05: Store Aisle',
+                                        time: 'LIVE MONITORING',
+                                        location: 'CAM05 / gate_5',
+                                        match: 'LIVE FEED',
+                                        tag: 'Store Aisle',
+                                        tagColor: AppColors.secondary,
+                                        height: 160,
+                                        videoAsset: 'assets/videos/cam05_store_aisle.mp4',
+                                      ),
+                                      ResultCard(
+                                        imageUrl: '',
+                                        title: 'CAM06: Border Walkway',
+                                        time: 'LIVE MONITORING',
+                                        location: 'CAM06 / border_road',
+                                        match: 'LIVE FEED',
+                                        tag: 'Border Road',
+                                        tagColor: AppColors.secondary,
+                                        height: 160,
+                                        videoAsset: 'assets/videos/cam06_face_demographics_walking.mp4',
+                                      ),
+                                    ],
+                            );
+                          },
+                        ),
                       ),
-                      ResultCard(
-                        imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBsPp-tlGQ6HteaIwBS0gzMZM9I3aQw_P-j2buFMiY8-AdnjLlr7SdIfDojqAQwK-06vGmNi5bR0VGwZrmBEeoFdxSWGtADawdaQPnETEwdKEpg0keql7Y7ib1HcvkQmKMiEi1XJnDkN8TsOK0t3ee0m8a90YQc6Bt81CqacA96ckEd7cy876AMRTwBG5sbUzFF3ulXtMNlC--v0_1mdeiwHihvMyHXSJSpPfszBmJhLdu18gFiX3Nr',
-                        title: 'Unidentified Individual',
-                        time: '07:15:02 AM - Today',
-                        location: 'CAM-P1-12',
-                        match: '92% Match',
-                        tag: 'Person',
-                        tagColor: AppColors.secondary,
-                        height: 192,
-                      ),
-                      ResultCard(
-                        imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuA3Uzg6-JBJrPYEfFUnMkjurQngdGg2ImQZ9SWc8MntIslb_3hZacfVw9UYqfh7CVClVmmbjlF54ad9VWUrOtO1vaLfaPeDuCUYi3iF5it45dx6ETDA4kymDfumvC8X8a3z0cg8eHtPpt3M10Mz9oudi1GK0dYfG7iDWhml7ZhtQVU3J790EcV-U4f9Xz-uW9kEtVHQkwAySnY8-rVzNwrnTWlMXWqh3qgxo7Ogv9QPkrT4Hz0fDPkl',
-                        title: 'Partial Red Vehicle',
-                        time: '06:58:33 AM - Today',
-                        location: 'CAM-G2-05',
-                        match: '88% Match',
-                        tag: 'Vehicle',
-                        tagColor: AppColors.primaryContainer,
-                        height: 128,
-                      ),
-                      ResultCard(
-                        imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDxtsDDwWEZcgnMtot_LogOBHDtWLHEpTlR8sk-UHh6p3vbSjhLAx4eWtANO1_eYluwdmNc4ljX_GYlCVU6ug_dIhSA0KG5U-8ALVn2sN0PmG8Y7nSoMl54loxFydyjF3e8cnzFz8fGy7w41EVnweR8h85ZUCB8PtbIuXF8YSP_XfcA7n8Qq17MVbuHoM4buzXZNRfO7FqS1hLQ2CDKOc76ef_9hweOyko5Ub8UFLsOHAbw14f_S4qW',
-                        title: 'Departing Vehicle (Red)',
-                        time: '07:45:10 AM - Today',
-                        location: 'CAM-G2-01',
-                        match: '75% Match',
-                        tag: 'Vehicle',
-                        tagColor: AppColors.primaryContainer,
-                        height: 176,
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildSearchResultCard(Map<String, dynamic> result) {
+    final thumbnail = _resolveMediaUrl(result['thumbnail_url'] as String?);
+    final timestamp = DateTime.tryParse(result['timestamp'] as String? ?? '');
+    final attributes = (result['attributes'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final objectType = (result['object_type'] as String? ?? 'object').toUpperCase();
+    final cameraId = (result['camera_id'] as String? ?? 'CAM01').toUpperCase();
+    final zone = result['zone'] as String? ?? 'Active Zone';
+    final similarity = ((result['similarity'] as num?) ?? 1.0) * 100;
+    final videoAsset = cameraVideoAssets[cameraId] ?? 'assets/videos/cam01_people_detection.mp4';
+    final tagText = (attributes['vehicle_type'] as String?)?.toUpperCase() ??
+        (attributes['shirt_color'] as String?)?.toUpperCase() ??
+        objectType;
+
+    return ResultCard(
+      imageUrl: thumbnail ?? '',
+      title: '$objectType DETECTED',
+      time: timestamp != null
+          ? '${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')}:${timestamp.second.toString().padLeft(2, '0')} - Today'
+          : 'Indexed Event',
+      location: '$cameraId / $zone',
+      match: '${similarity.round()}% Match',
+      tag: tagText,
+      tagColor: AppColors.primaryContainer,
+      height: 160,
+      videoAsset: videoAsset,
+    );
+  }
+
+  String? _resolveMediaUrl(String? path) {
+    if (path == null || path.isEmpty) return null;
+    return path.startsWith('http') ? path : '${ApiConfig.sceneSearchBaseUrl}$path';
   }
 
   Widget _buildSearchHistory() {
@@ -452,20 +738,14 @@ class _IntelligenceSearchViewState extends State<IntelligenceSearchView> {
           Expanded(
             child: ListView(
               padding: const EdgeInsets.all(8),
-              children: [
-                _buildHistoryItem(
-                  '"Find all red vehicles near Gate 2 between 6-8 AM"',
-                  'Today, 08:12 AM',
-                ),
-                _buildHistoryItem(
-                  '"People carrying backpacks in Sector 4"',
-                  'Yesterday, 22:45 PM',
-                ),
-                _buildHistoryItem(
-                  '"Show me white vans loitering over 10 mins"',
-                  'Oct 24, 14:30 PM',
-                ),
-              ],
+              children: _searchHistory.isEmpty
+                  ? [
+                      const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Text('No searches yet. Submit a query to create history.', style: TextStyle(color: AppColors.outline, fontSize: 11)),
+                      ),
+                    ]
+                  : [for (final item in _searchHistory) _buildHistoryItem(item)],
             ),
           ),
         ],
@@ -473,7 +753,9 @@ class _IntelligenceSearchViewState extends State<IntelligenceSearchView> {
     );
   }
 
-  Widget _buildHistoryItem(String query, String time) {
+  Widget _buildHistoryItem(Map<String, dynamic> item) {
+    final evidence = (item['evidence'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+    final searchedAt = DateTime.tryParse(item['searched_at'] as String? ?? '');
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
       padding: const EdgeInsets.all(12),
@@ -488,7 +770,7 @@ class _IntelligenceSearchViewState extends State<IntelligenceSearchView> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            query,
+            item['query'] as String? ?? 'Unknown query',
             style: const TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w500,
@@ -503,7 +785,7 @@ class _IntelligenceSearchViewState extends State<IntelligenceSearchView> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                time,
+                '${item['result_count'] ?? 0} match${item['result_count'] == 1 ? '' : 'es'}  ${searchedAt == null ? '' : _formatHistoryTime(searchedAt)}',
                 style: const TextStyle(
                   fontSize: 10,
                   color: AppColors.outline,
@@ -517,9 +799,42 @@ class _IntelligenceSearchViewState extends State<IntelligenceSearchView> {
               ),
             ],
           ),
+          if (evidence.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 54,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [for (final result in evidence) _historyEvidence(result)],
+              ),
+            ),
+          ],
         ],
       ),
     );
+  }
+
+  Widget _historyEvidence(Map<String, dynamic> result) {
+    final thumbnail = result['thumbnail_url'] as String?;
+    final imageUrl = thumbnail == null || thumbnail.isEmpty
+      ? null
+      : thumbnail.startsWith('http')
+        ? thumbnail
+        : '${ApiConfig.sceneSearchBaseUrl}$thumbnail';
+    return Container(
+      width: 72,
+      margin: const EdgeInsets.only(right: 6),
+      decoration: BoxDecoration(color: Colors.black, border: Border.all(color: AppColors.outlineVariant)),
+        child: imageUrl == null
+          ? const Icon(Icons.photo_camera_back_outlined, color: AppColors.primaryFixedDim, size: 20)
+          : Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_outlined, color: AppColors.outline)),
+    );
+  }
+
+  String _formatHistoryTime(DateTime value) {
+    final hour = value.hour.toString().padLeft(2, '0');
+    final minute = value.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
   }
 
   Widget _buildAISuggestions() {
@@ -553,11 +868,17 @@ class _IntelligenceSearchViewState extends State<IntelligenceSearchView> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  _buildSuggestionChip('"Track this vehicle across all zones"'),
+                  _buildSuggestionChip('Vehicles: "car"', 'car'),
                   const SizedBox(width: 8),
-                  _buildSuggestionChip('"Identify license plate variations"'),
+                  _buildSuggestionChip('People: "person"', 'person'),
                   const SizedBox(width: 8),
-                  _buildSuggestionChip('"Show similar anomalies yesterday"'),
+                  _buildSuggestionChip('Bicycles: "bicycle"', 'bicycle'),
+                  const SizedBox(width: 8),
+                  _buildSuggestionChip('Trucks: "truck"', 'truck'),
+                  const SizedBox(width: 8),
+                  _buildSuggestionChip('Camera 2: "CAM02"', 'CAM02'),
+                  const SizedBox(width: 8),
+                  _buildSuggestionChip('Gate 3: "gate 3"', 'gate 3'),
                 ],
               ),
             ),
@@ -567,21 +888,28 @@ class _IntelligenceSearchViewState extends State<IntelligenceSearchView> {
     );
   }
 
-  Widget _buildSuggestionChip(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF121826),
-        border: Border.all(color: AppColors.outlineVariant),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w400,
-          color: AppColors.onSurface,
-          fontFamily: 'Inter',
+  Widget _buildSuggestionChip(String label, String query) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () {
+        _searchController.text = query;
+        _runSearch(query);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFF121826),
+          border: Border.all(color: AppColors.outlineVariant),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w400,
+            color: AppColors.onSurface,
+            fontFamily: 'Inter',
+          ),
         ),
       ),
     );
@@ -763,7 +1091,7 @@ class SideNavBar extends StatelessWidget {
   }
 }
 
-class ResultCard extends StatelessWidget {
+class ResultCard extends StatefulWidget {
   final String imageUrl;
   final String title;
   final String time;
@@ -772,6 +1100,7 @@ class ResultCard extends StatelessWidget {
   final String tag;
   final Color tagColor;
   final double height;
+  final String? videoAsset;
 
   const ResultCard({
     super.key,
@@ -783,10 +1112,20 @@ class ResultCard extends StatelessWidget {
     required this.tag,
     required this.tagColor,
     required this.height,
+    this.videoAsset,
   });
 
   @override
+  State<ResultCard> createState() => _ResultCardState();
+}
+
+class _ResultCardState extends State<ResultCard> {
+  // Always true by default so every video runs in a loop continuously!
+  bool _playingVideo = true;
+
+  @override
   Widget build(BuildContext context) {
+    final isLive = widget.match.contains('LIVE');
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xFF121826),
@@ -796,49 +1135,69 @@ class ResultCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Image
+          // Image / Video area
           Container(
-            height: height,
+            height: widget.height,
             width: double.infinity,
             color: Colors.black,
             child: Stack(
               children: [
                 Positioned.fill(
                   child: Opacity(
-                    opacity: 0.8,
-                    child: Image.network(
-                      imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(color: Colors.grey[900]),
-                    ),
+                    opacity: 0.95,
+                    child: _playingVideo && widget.videoAsset != null
+                        ? AssetVideoPlayer(
+                            key: ValueKey(widget.videoAsset),
+                            assetPath: widget.videoAsset!,
+                            label: widget.tag.toUpperCase(),
+                          )
+                        : widget.imageUrl.isNotEmpty
+                            ? Image.network(
+                                widget.imageUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Container(
+                                  color: Colors.grey[900],
+                                  child: const Center(
+                                    child: Icon(Icons.videocam_outlined, color: AppColors.outlineVariant, size: 32),
+                                  ),
+                                ),
+                              )
+                            : Container(
+                                color: Colors.black,
+                                child: const Center(
+                                  child: Icon(Icons.videocam_outlined, color: AppColors.outlineVariant, size: 32),
+                                ),
+                              ),
                   ),
                 ),
-                // Match badge
+                // Match or Live Feed badge
                 Positioned(
                   top: 8,
                   right: 8,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                     decoration: BoxDecoration(
-                      color: AppColors.surfaceContainer.withOpacity(0.8),
+                      color: isLive ? const Color(0xE60A2A20) : AppColors.surfaceContainer.withOpacity(0.85),
                       borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: AppColors.outlineVariant),
+                      border: Border.all(
+                        color: isLive ? const Color(0xFF00FF9D) : AppColors.outlineVariant,
+                      ),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(
-                          Icons.radar,
-                          color: AppColors.primaryContainer,
-                          size: 14,
+                        Icon(
+                          isLive ? Icons.fiber_manual_record : Icons.radar,
+                          color: isLive ? const Color(0xFF00FF9D) : AppColors.primaryContainer,
+                          size: isLive ? 10 : 14,
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          match,
-                          style: const TextStyle(
+                          widget.match,
+                          style: TextStyle(
                             fontSize: 11,
-                            fontWeight: FontWeight.w400,
-                            color: AppColors.primaryContainer,
+                            fontWeight: isLive ? FontWeight.bold : FontWeight.w500,
+                            color: isLive ? const Color(0xFF00FF9D) : AppColors.primaryContainer,
                             fontFamily: 'JetBrains Mono',
                           ),
                         ),
@@ -853,11 +1212,11 @@ class ResultCard extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.7),
+                      color: Colors.black.withOpacity(0.75),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
-                      location,
+                      widget.location,
                       style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w500,
@@ -881,19 +1240,21 @@ class ResultCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        title,
+                        widget.title,
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                           color: AppColors.onSurface,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  time,
+                  widget.time,
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w400,
@@ -905,15 +1266,15 @@ class ResultCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: tagColor.withOpacity(0.1),
-                    border: Border(left: BorderSide(color: tagColor, width: 2)),
+                    color: widget.tagColor.withOpacity(0.1),
+                    border: Border(left: BorderSide(color: widget.tagColor, width: 2)),
                   ),
                   child: Text(
-                    tag,
+                    widget.tag,
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w400,
-                      color: tagColor,
+                      color: widget.tagColor,
                       fontFamily: 'JetBrains Mono',
                     ),
                   ),
@@ -931,19 +1292,23 @@ class ResultCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(4),
                       ),
                     ),
-                    onPressed: () {},
+                    onPressed: () {
+                      if (widget.videoAsset != null) {
+                        setState(() => _playingVideo = !_playingVideo);
+                      }
+                    },
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(
-                          Icons.play_arrow,
+                        Icon(
+                          _playingVideo ? Icons.loop : Icons.play_arrow,
                           color: AppColors.primaryFixedDim,
                           size: 16,
                         ),
                         const SizedBox(width: 4),
-                        const Text(
-                          'Play from here',
-                          style: TextStyle(
+                        Text(
+                          _playingVideo ? 'Continuous Loop' : 'Play Video',
+                          style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w400,
                             color: AppColors.primaryFixedDim,
@@ -960,4 +1325,4 @@ class ResultCard extends StatelessWidget {
       ),
     );
   }
-}
+}

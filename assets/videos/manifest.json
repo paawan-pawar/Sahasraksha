@@ -1,0 +1,44 @@
+{
+  "license": "CC BY 4.0",
+  "source_repository": "https://github.com/intel-iot-devkit/sample-videos",
+  "source_license": "https://creativecommons.org/licenses/by/4.0/",
+  "purpose": "Prototype UI testing and virtual-camera development only",
+  "cameras": [
+    {
+      "camera_id": "CAM01",
+      "file": "cam01_people_detection.mp4",
+      "source_file": "people-detection.mp4",
+      "focus": "person detection"
+    },
+    {
+      "camera_id": "CAM02",
+      "file": "cam02_person_bicycle_car.mp4",
+      "source_file": "person-bicycle-car-detection.mp4",
+      "focus": "mixed person, bicycle, and car detection"
+    },
+    {
+      "camera_id": "CAM03",
+      "file": "cam03_car_detection.mp4",
+      "source_file": "car-detection.mp4",
+      "focus": "vehicle detection"
+    },
+    {
+      "camera_id": "CAM04",
+      "file": "cam04_worker_zone.mp4",
+      "source_file": "worker-zone-detection.mp4",
+      "focus": "zone and worker activity"
+    },
+    {
+      "camera_id": "CAM05",
+      "file": "cam05_store_aisle.mp4",
+      "source_file": "store-aisle-detection.mp4",
+      "focus": "multi-object aisle activity"
+    },
+    {
+      "camera_id": "CAM06",
+      "file": "cam06_face_demographics_walking.mp4",
+      "source_file": "face-demographics-walking.mp4",
+      "focus": "walking-person activity"
+    }
+  ]
+}

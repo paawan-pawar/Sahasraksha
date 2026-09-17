@@ -1,0 +1,18 @@
+{
+  "dataset": "EPFL POM 1.1",
+  "source": "https://www.epfl.ch/labs/cvlab/data/pom/",
+  "license": "See the EPFL POM distribution and source archive for terms",
+  "purpose": "Cross-camera trail UI and pipeline testing only",
+  "important_note": "POM provides two synchronized camera views of the same scene. Six short clips below are time segments from those connected views, not six independent physical cameras. Use CAM01 and CAM02 as the connected camera pair.",
+  "camera_connections": [
+    {"from": "CAM01", "to": "CAM02", "relationship": "synchronized adjacent view"}
+  ],
+  "clips": [
+    {"file": "pom_cam1_segment1.mp4", "camera_id": "CAM01", "segment": 1, "frame_range": "160-169"},
+    {"file": "pom_cam1_segment2.mp4", "camera_id": "CAM01", "segment": 2, "frame_range": "170-179"},
+    {"file": "pom_cam1_segment3.mp4", "camera_id": "CAM01", "segment": 3, "frame_range": "180-189"},
+    {"file": "pom_cam2_segment1.mp4", "camera_id": "CAM02", "segment": 1, "frame_range": "160-169"},
+    {"file": "pom_cam2_segment2.mp4", "camera_id": "CAM02", "segment": 2, "frame_range": "170-179"},
+    {"file": "pom_cam2_segment3.mp4", "camera_id": "CAM02", "segment": 3, "frame_range": "180-189"}
+  ]
+}

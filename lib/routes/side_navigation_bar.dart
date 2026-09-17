@@ -9,7 +9,7 @@ class AppSideNavigationBar extends StatelessWidget {
 
   static const _items = <_NavigationItem>[
     _NavigationItem(Icons.dashboard, 'Command Center', AppRoutes.commandCenter),
-    _NavigationItem(Icons.query_stats, 'AI Shadow & Trails', AppRoutes.aiShadow),
+    _NavigationItem(Icons.route, 'AI Trailing', AppRoutes.aiShadow),
     _NavigationItem(Icons.search, 'Scene Search', AppRoutes.intelligenceSearch),
     _NavigationItem(Icons.warning, 'Alerts & Risk', AppRoutes.alertsRisk),
     _NavigationItem(Icons.radar, 'Coverage Intel', AppRoutes.coverageIntel),

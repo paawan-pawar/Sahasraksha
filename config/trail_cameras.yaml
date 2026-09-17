@@ -1,0 +1,24 @@
+# Connected AI Trailing test pair derived from EPFL POM synchronized views.
+# Six files are temporal segments of two physical camera views.
+cameras:
+  CAM01:
+    zone: connected_scene_entry
+    source: assets/trail_vid/pom_cam1_segment1.mp4
+    segments:
+      - assets/trail_vid/pom_cam1_segment1.mp4
+      - assets/trail_vid/pom_cam1_segment2.mp4
+      - assets/trail_vid/pom_cam1_segment3.mp4
+  CAM02:
+    zone: connected_scene_exit
+    source: assets/trail_vid/pom_cam2_segment1.mp4
+    segments:
+      - assets/trail_vid/pom_cam2_segment1.mp4
+      - assets/trail_vid/pom_cam2_segment2.mp4
+      - assets/trail_vid/pom_cam2_segment3.mp4
+connections:
+  CAM01:
+    - destination: CAM02
+      direction: scene-transition
+      min_travel_seconds: 0
+      max_travel_seconds: 60
+      destination_zone: connected_scene_exit

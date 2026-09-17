@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../pages/ai_shadow.dart' as ai_shadow;
+import '../pages/ai_trailing.dart' as ai_trailing;
 import '../pages/alerts_risk.dart' as alerts_risk;
 import '../pages/command_center.dart' as command_center;
 import '../pages/coverage_intel.dart' as coverage_intel;
@@ -14,7 +14,9 @@ abstract final class AppRouter {
       case AppRoutes.commandCenter:
         return _pageRoute(const command_center.CommandCenter(), settings);
       case AppRoutes.aiShadow:
-        return _pageRoute(const ai_shadow.AIShadowTrailsView(), settings);
+        return _pageRoute(const ai_trailing.AITrailingView(), settings);
+      case AppRoutes.aiTrailing:
+        return _pageRoute(const ai_trailing.AITrailingView(), settings);
       case AppRoutes.intelligenceSearch:
         return _pageRoute(
           const intelligence_search.IntelligenceSearchView(),
@@ -77,7 +79,7 @@ class _AppShellState extends State<AppShell> {
         index: _routes.indexOf(_currentRoute),
         children: const [
           command_center.CommandCenter(),
-          ai_shadow.AIShadowTrailsView(),
+          ai_trailing.AITrailingView(),
           intelligence_search.IntelligenceSearchView(),
           alerts_risk.AlertsRiskView(),
           coverage_intel.CoverageIntelView(),
