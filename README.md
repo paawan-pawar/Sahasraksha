@@ -1,4 +1,4 @@
-# 🛡️ KAVACH
+# 🛡️ SAHASRAKSHA
 #     IBVAP --- Intelligent Border Video Analytics Platform
 
 > **Kavach: Transforming existing CCTV infrastructure into an AI-powered
