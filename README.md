@@ -1,6 +1,6 @@
 # 🛡️ SAHASRAKSHA
-> ** Lord Indra is known as Sahasraksha, which translates to "thousand-eyed" in Sanskrit 
-> (sahasra means thousand, and aksha means eyes).**
+> Lord Indra is known as Sahasraksha, which translates to "thousand-eyed" in Sanskrit 
+> (**sahasra** means thousand, and **aksha** means eyes).
 
 #     IBVAP --- Intelligent Border Video Analytics Platform
 
