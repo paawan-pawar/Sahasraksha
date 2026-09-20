@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'dart:ui';
+import 'package:video_player/video_player.dart';
 
 import '../routes/side_navigation_bar.dart';
 
@@ -392,12 +391,12 @@ class MiddleSection extends StatelessWidget {
 
                       return Stack(
                         children: [
-                          cell(_buildCameraThumbnail('BOP-01', true, 'REC'), 0, 0),
-                          cell(_buildCameraThumbnail('BOP-02', false), 1, 0),
-                          cell(_buildCameraThumbnail('BOP-03', false), 2, 0),
-                          cell(_buildCameraThumbnail('BOP-04', false), 0, 1),
+                          cell(_buildCameraThumbnail('BOP-01', true, 'assets/command_centre_vid/vid_3_human_alert.mp4', 'REC'), 0, 0),
+                          cell(_buildCameraThumbnail('BOP-02', false, 'assets/command_centre_vid/vid_4_human_alert.mp4'), 1, 0),
+                          cell(_buildCameraThumbnail('BOP-03', false, 'assets/command_centre_vid/vid1.mp4'), 2, 0),
+                          cell(_buildCameraThumbnail('BOP-04', false, 'assets/command_centre_vid/vid_5_human_alert.mp4'), 0, 1),
                           cell(_buildEnlargedCamera(), 1, 1, columnSpan: 2, rowSpan: 2),
-                          cell(_buildCameraThumbnail('BOP-08', false), 0, 2),
+                          cell(_buildCameraThumbnail('BOP-08', false, 'assets/command_centre_vid/vid2.mp4'), 0, 2),
                         ],
                       );
                     },
@@ -476,61 +475,12 @@ class MiddleSection extends StatelessWidget {
     );
   }
 
-  Widget _buildCameraThumbnail(String label, bool recording, [String? badge]) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surfaceContainerHigh,
-        border: Border.all(color: AppColors.outlineVariant),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: Container(
-              color: AppColors.surfaceContainerHigh,
-              child: Opacity(
-                opacity: 0.6,
-                child: Image.network(
-                  'https://lh3.googleusercontent.com/aida-public/AB6AXuBiumOtZXJHb0Cql8Jsyt2z_0LPUbmqzDdVXiJ8vQ3ClqRpZwtjtRy6hhRiqvbKuhp89SqL090Dv9NoyfE-GYDULZ5LxWLM4te3W-h-MhUhS5LO4cxXnN4ce6UPOERLpdfFGUDu_O-mgYxNf-9KfyCXeZeXhwfIfGyK3EcpEiSW1CnyMC8hPfaiFC_WazCweNGq2oAC6eEcADkekXVna7sDltbmjfd9c3htGQVEs1YGBiEZ41MjyViI',
-                  fit: BoxFit.cover,
-                  color: Colors.white,
-                  colorBlendMode: BlendMode.srcATop,
-                  errorBuilder: (context, error, stackTrace) => _buildFeedFallback(),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 4,
-            left: 4,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-              color: Colors.black.withOpacity(0.6),
-              child: Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: AppColors.onSurface,
-                  fontFamily: 'JetBrains Mono',
-                ),
-              ),
-            ),
-          ),
-          if (recording)
-            Positioned(
-              top: 4,
-              right: 4,
-              child: const Text(
-                'REC',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: AppColors.primaryFixedDim,
-                  fontFamily: 'JetBrains Mono',
-                ),
-              ),
-            ),
-        ],
-      ),
+  Widget _buildCameraThumbnail(String label, bool recording, String videoAsset, [String? badge]) {
+    return _CameraFeedThumbnail(
+      label: label,
+      videoAsset: videoAsset,
+      recording: recording,
+      badge: badge,
     );
   }
 
@@ -755,6 +705,175 @@ class MiddleSection extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _CameraFeedThumbnail extends StatefulWidget {
+  const _CameraFeedThumbnail({
+    required this.label,
+    required this.videoAsset,
+    this.recording = false,
+    this.badge,
+  });
+
+  final String label;
+  final String videoAsset;
+  final bool recording;
+  final String? badge;
+
+  @override
+  State<_CameraFeedThumbnail> createState() => _CameraFeedThumbnailState();
+}
+
+class _CameraFeedThumbnailState extends State<_CameraFeedThumbnail> {
+  VideoPlayerController? _controller;
+  bool _hasError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initController();
+  }
+
+  void _initController() {
+    _hasError = false;
+    final controller = VideoPlayerController.asset(widget.videoAsset)
+      ..setLooping(true)
+      ..setVolume(0);
+
+    _controller = controller;
+
+    controller.initialize().then((_) {
+      if (!mounted || _controller != controller) {
+        controller.dispose();
+        return;
+      }
+      setState(() {});
+      controller.play();
+    }).catchError((_) {
+      if (!mounted || _controller != controller) {
+        controller.dispose();
+        return;
+      }
+      setState(() => _hasError = true);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _CameraFeedThumbnail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.videoAsset != widget.videoAsset) {
+      _controller?.dispose();
+      _controller = null;
+      _initController();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    _controller = null;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = _controller;
+    final isInitialized = controller != null && controller.value.isInitialized && !_hasError;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainerHigh,
+        border: Border.all(color: AppColors.outlineVariant),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (isInitialized)
+            FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: controller.value.size.width,
+                height: controller.value.size.height,
+                child: VideoPlayer(controller),
+              ),
+            )
+          else
+            _buildThumbnailFallback(),
+          Positioned(
+            top: 4,
+            left: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              color: Colors.black.withOpacity(0.6),
+              child: Text(
+                widget.label,
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: AppColors.onSurface,
+                  fontFamily: 'JetBrains Mono',
+                ),
+              ),
+            ),
+          ),
+          if (widget.recording)
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                color: Colors.black.withOpacity(0.6),
+                child: const Text(
+                  'REC',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: AppColors.primaryFixedDim,
+                    fontFamily: 'JetBrains Mono',
+                  ),
+                ),
+              ),
+            ),
+          if (widget.badge != null && !widget.recording)
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                color: Colors.black.withOpacity(0.6),
+                child: Text(
+                  widget.badge!,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: AppColors.primaryFixedDim,
+                    fontFamily: 'JetBrains Mono',
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildThumbnailFallback() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF263B3B), Color(0xFF101C24)],
+        ),
+      ),
+      child: Center(
+        child: Icon(
+          Icons.videocam,
+          size: 36,
+          color: AppColors.primaryFixedDim.withOpacity(0.35),
+        ),
       ),
     );
   }
