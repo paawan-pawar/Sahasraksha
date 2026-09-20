@@ -1,7 +1,10 @@
-# 🛡️ KAVACH
+# 🛡️ SAHASRAKSHA
+> ** Lord Indra is known as Sahasraksha, which translates to "thousand-eyed" in Sanskrit 
+> (sahasra means thousand, and aksha means eyes).**
+
 #     IBVAP --- Intelligent Border Video Analytics Platform
 
-> **Kavach: Transforming existing CCTV infrastructure into an AI-powered
+> **SAHASRAKSHA: Transforming existing CCTV infrastructure into an AI-powered
 > border intelligence network.**
 
 IBVAP (Intelligent Border Video Analytics Platform) is an AI-driven
